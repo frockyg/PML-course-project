@@ -1,0 +1,145 @@
+---
+title: "Weight Lifting Exercise Analysis"
+Date: 23/01/2025
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+### Load the package and data
+
+First packages and data to be used for this project are loaded.
+```{r, cache=TRUE}
+library(caret)
+library(randomForest)
+
+training <- read.csv("pml-training.csv")#, na.strings = c("NA", ""), header = TRUE)
+testing <- read.csv("pml-testing.csv")#, na.strings = c("NA", ""), header = TRUE)
+
+# Set the working directory and load the training and testing data data already saved in the directory
+# Set both "NA" and "" strings as NA values.
+setwd("~/Coursera/MachineLearning/CourseProject/PML-course-project/")
+training <- read.csv("pml-training.csv", na.strings = c("NA", ""), header = TRUE)
+testing <- read.csv("pml-testing.csv", na.strings = c("NA", ""), header = TRUE)
+
+# set a seed for data partitions
+set.seed(628)
+
+# The dimensions of the training and testing set are as follows:
+dim(training)
+dim(testing)
+
+# Check for column names which differ between the training and testing sets.
+index <- which(!(colnames(training) == colnames(testing)))
+# Column names which appear in the training set only.
+colnames(training)[index]
+# Column names which appear in the testing set only.
+colnames(testing)[index]
+```
+
+### Data processing and cleaning
+
+The presence of NA values can cause issues when calling machine learning methods so these will be removed.
+
+```{r, cache=TRUE}
+set.seed(628)
+
+# count the number of non-NAs appearing in  each column of the training set 
+count_train <- as.vector(apply(training, 2, function(x) length(which(!is.na(x)))))
+# Retain columns whose data is at least 70% non-NAs
+index_train <- which(count_train/dim(training)[1] > 0.7)
+training <- training[, index_train]
+
+# repeat the process for testing set
+count_test <- as.vector(apply(testing, 2, function(x) length(which(!is.na(x)))))
+index_test <- which(count_test/dim(testing)[1] > 0.7)
+testing <- testing[, index_test]
+
+# Perform a check on the column names again
+# all the column names are the same except the last one ("classe" and "problem_id")
+index <- which(!(colnames(training) == colnames(testing)))
+colnames(training)[index]
+colnames(testing)[index]
+
+# Remove the first 7 columns of both data sets since as these do not contain measurement related data
+training <- training[, -c(1:7)]
+testing <- testing[, -c(1:7)]
+```
+
+Since the data size between training and testing is not comparable, I decide to split my training set into my_training and my_testing data sets by 7:3 to find the best model. The best model will be used to predict the outcomes on the smaller testing data set with only 20 observations.
+
+```{r, cache=TRUE}
+set.seed(628)
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+my_training <- training[inTrain, ]
+my_testing <- training[-inTrain, ]
+# check each dimension
+dim(my_training)
+dim(my_testing)
+
+```
+
+## Model Training and Cross Validation
+
+We will train the following two models with K=3 cross validation:
+
+1. Decision trees with CART (rpart)
+2. Random forest decision trees (rf)
+
+We considered but decided against using stochastic gradient boosting trees (GBM) approach as it can have a longer training time than random forest.  Additionally GBM requires tuning of hyperparameters like learning rate, number of trees, and maximum depth, making it more challenging to optimize.   
+
+```{r model training}
+library(caret)
+model_cart <- train(
+  classe ~., 
+  data=my_training,
+  trControl=trainControl(method='cv', number = 3),
+  method='rpart'
+)
+
+# The out of sample error for the trained CART prediction model is now checked:
+predict_cart <- predict(model_cart, my_testing)
+accuracy_cart <- confusionMatrix(predict_cart,as.factor( my_testing$classe))$overall[1]
+confusionMatrix(predict_cart,as.factor( my_testing$classe))
+
+model_rf <- train(
+  classe ~ ., 
+  data=training,
+  trControl=trainControl(method='cv', number = 3),
+  method='rf',
+  ntree=100
+)
+
+# The out of sample error for the trained Random Forest prediction model is now checked:
+predict_rf <- predict(model_rf, my_testing)
+accuracy_rf <- confusionMatrix(predict_rf,as.factor( my_testing$classe))$overall[1]
+confusionMatrix(predict_rf,as.factor( my_testing$classe))
+
+```
+### Conclusion
+
+The accuracy obtained using decision trees with CART (rpart method) is `r round(accuracy_cart, 9)` while the random forest decision trees (rf method) results in a much higher accuracy of `r round(accuracy_rf, 9)`. The expected out of sample error is much lower for the random forest decision tree model than for the CART decision tree model.  
+
+Given the better performance, the `randomForest` model is chosen as the prediction model for the data set containing 20 test cases:
+```{r, cache=TRUE}
+predict(model_rf, testing)#, type = "class")
+
+```
